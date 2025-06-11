@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/birgerrydback/wofi-bluetooth/internal/bluetooth"
 )
@@ -15,12 +16,27 @@ const (
 	// WofiCommand is the base command for launching wofi
 	WofiCommand = "wofi -d -i -p"
 
-	// ConnectedIcon is the icon for connected devices
+	// Icons for different device states
 	ConnectedIcon    = "󰂱"
 	DisconnectedIcon = "󰾰"
+	DiscoveredIcon   = "󰑐"
 
-	GoBack = "Back"
-	Exit   = "Exit"
+	ActionDisableBluetooth    = "  Disable Bluetooth"
+	ActionEnableBluetooth     = "󰂲  Enable Bluetooth"
+	ActionEnableDiscoverable  = "  Enable discoverable"
+	ActionDisableDiscoverable = "  Disable discoverable"
+	ActionEnablePairable      = "󰌺  Enable pairable"
+	ActionDisablePairable     = "  Disable pairable"
+	ActionScan                = "󱉶  Scan"
+	ActionGoBack              = "Back"
+	ActionExit                = "Exit"
+
+	DeviceActionPair       = "󰌺  Pair"
+	DeviceActionUnpair     = "  Unpair"
+	DeviceActionTrust      = "󱚩  Pair"
+	DeviceActionUntrust    = "󱎚  Unpair"
+	DeviceActionConnect    = "󰂲  Connect"
+	DeviceActionDisconnect = "󰂱  Disconnect"
 )
 
 type (
@@ -40,7 +56,7 @@ func (ui UI) ShowMainMenu() {
 	var options []string
 
 	if ui.bluetooth.IsPowered() {
-		power := "  Disable Bluetooth"
+		power := ActionDisableBluetooth
 
 		// Get connected and available devices
 		connectedDevices, err := ui.bluetooth.GetConnectedDevices()
@@ -53,17 +69,38 @@ func (ui UI) ShowMainMenu() {
 			fmt.Println("Error getting all devices:", err)
 		}
 
-		// Create a map of connected device names for quick lookup
+		// Get discovered but not paired devices if scanning is on
+		var discoveredDevices []bluetooth.Device
+		if ui.bluetooth.IsScanning() {
+			discoveredDevices, err = ui.bluetooth.GetDiscoveredDevices()
+			if err != nil {
+				fmt.Println("Error getting discovered devices:", err)
+			}
+		}
+
+		// Create maps for quick lookup
 		connectedMap := make(map[string]bool)
+		knownDevicesMap := make(map[string]bool)
+
+		// Add connected devices to the menu
 		for _, device := range connectedDevices {
 			connectedMap[device.Name] = true
+			knownDevicesMap[device.MAC] = true
 			options = append(options, fmt.Sprintf("%s  %s", ConnectedIcon, device.Name))
 		}
 
-		// Add disconnected devices
+		// Add disconnected but paired devices
 		for _, device := range allDevices {
 			if !connectedMap[device.Name] && device.Name != "" {
+				knownDevicesMap[device.MAC] = true
 				options = append(options, fmt.Sprintf("%s  %s", DisconnectedIcon, device.Name))
+			}
+		}
+
+		// Add discovered but not paired devices if scanning is on
+		for _, device := range discoveredDevices {
+			if !knownDevicesMap[device.MAC] && device.Name != "" {
+				options = append(options, fmt.Sprintf("%s  %s", DiscoveredIcon, device.Name))
 			}
 		}
 
@@ -71,71 +108,93 @@ func (ui UI) ShowMainMenu() {
 		options = append(options, power)
 
 		// Add controller flags
-		scanText := "Scan: off"
-		if ui.bluetooth.IsScanning() {
-			scanText = "Scan: on"
-		}
+		scanAction := ActionScan
 
-		pairableText := "Pairable: off"
+		pairableAction := ActionEnablePairable
 		if ui.bluetooth.IsPairable() {
-			pairableText = "Pairable: on"
+			pairableAction = ActionDisablePairable
 		}
 
-		discoverableText := "Discoverable: off"
+		discoverableAction := ActionEnableDiscoverable
 		if ui.bluetooth.IsDiscoverable() {
-			discoverableText = "Discoverable: on"
+			discoverableAction = ActionDisableDiscoverable
 		}
 
-		options = append(options, scanText, pairableText, discoverableText, "Exit")
+		options = append(options, scanAction, pairableAction, discoverableAction, ActionExit)
 	} else {
-		power := "󰂲  Enable Bluetooth"
-		options = append(options, power, "Exit")
+		power := ActionEnableBluetooth
+		options = append(options, power, ActionExit)
 	}
 
 	// Open wofi menu
-	chosen := promptMenuOptions(options, "Bluetooth")
+	action := promptMenuOptions(options, "Bluetooth")
 
 	// Handle chosen option
-	switch chosen {
+	switch action {
 	case "":
-		fallthrough
-	case "  Disable Bluetooth":
+		// User pressed Escape, just exit
+		return
+	case ActionDisableBluetooth:
 		ui.bluetooth.SetPower(false)
 		ui.ShowMainMenu()
-	case "󰂲  Enable Bluetooth":
+	case ActionEnableBluetooth:
 		ui.bluetooth.SetPower(true)
 		ui.ShowMainMenu()
-	case "Scan: on":
-		ui.bluetooth.SetScanning(false)
-		ui.ShowMainMenu()
-	case "Scan: off":
+	case ActionScan:
 		ui.bluetooth.SetScanning(true)
+
+		// Wait a moment to let the scan start
+		time.Sleep(500 * time.Millisecond)
+
 		ui.ShowMainMenu()
-	case "Discoverable: on":
+	// case "Scan: off":
+	//	// Start scanning with the custom command sequence
+	//	ui.bluetooth.SetScanning(true)
+
+	//	// Refresh the menu to show discovered devices
+	//	ui.ShowMainMenu()
+	case ActionDisableDiscoverable:
 		ui.bluetooth.SetDiscoverable(false)
 		ui.ShowMainMenu()
-	case "Discoverable: off":
+	case ActionEnableDiscoverable:
 		ui.bluetooth.SetDiscoverable(true)
 		ui.ShowMainMenu()
-	case "Pairable: on":
+	case ActionEnablePairable:
 		ui.bluetooth.SetPairable(false)
 		ui.ShowMainMenu()
-	case "Pairable: off":
+	case ActionDisablePairable:
 		ui.bluetooth.SetPairable(true)
 		ui.ShowMainMenu()
 	default:
 		// Check if a device was selected
-		cleanChosen := chosen
-		if strings.HasPrefix(chosen, ConnectedIcon) || strings.HasPrefix(chosen, DisconnectedIcon) {
-			cleanChosen = strings.TrimSpace(chosen[len(ConnectedIcon):])
+		cleanChosen := action
+		var isDiscovered bool
+
+		if strings.HasPrefix(action, ConnectedIcon) || strings.HasPrefix(action, DisconnectedIcon) {
+			cleanChosen = strings.TrimSpace(action[len(ConnectedIcon):])
+		} else if strings.HasPrefix(action, DiscoveredIcon) {
+			cleanChosen = strings.TrimSpace(action[len(DiscoveredIcon):])
+			isDiscovered = true
 		}
 
-		// Find the device in the list
-		allDevices, _ := ui.bluetooth.GetDevices()
-		for _, device := range allDevices {
-			if device.Name == cleanChosen {
-				ui.showDeviceMenu(device)
-				return
+		// Find the device in the appropriate list
+		if isDiscovered {
+			// Look in discovered devices
+			discoveredDevices, _ := ui.bluetooth.GetDiscoveredDevices()
+			for _, device := range discoveredDevices {
+				if device.Name == cleanChosen {
+					ui.showDiscoveredDeviceMenu(device)
+					return
+				}
+			}
+		} else {
+			// Look in paired devices
+			allDevices, _ := ui.bluetooth.GetDevices()
+			for _, device := range allDevices {
+				if device.Name == cleanChosen {
+					ui.showDeviceMenu(device)
+					return
+				}
 			}
 		}
 	}
@@ -145,25 +204,58 @@ func (ui UI) ShowMainMenu() {
 func (ui UI) showDeviceMenu(device bluetooth.Device) {
 	var options []string
 
-	// Build connection status
-	connectedText := "Connected: no"
+	connectionAction := DeviceActionConnect
 	if device.IsConnected() {
-		connectedText = "Connected: yes"
+		connectionAction = DeviceActionDisconnect
 	}
 
-	// Get paired and trusted status
-	pairedText := "Paired: no"
+	pairingAction := DeviceActionPair
 	if device.IsPaired() {
-		pairedText = "Paired: yes"
+		pairingAction = DeviceActionUnpair
 	}
 
-	trustedText := "Trusted: no"
+	trustAction := DeviceActionTrust
 	if device.IsTrusted() {
-		trustedText = "Trusted: yes"
+		trustAction = DeviceActionUntrust
 	}
 
-	// Build options
-	options = append(options, connectedText, pairedText, trustedText, GoBack, "Exit")
+	options = append(options, connectionAction, pairingAction, trustAction, ActionGoBack, ActionExit)
+
+	chosen := promptMenuOptions(options, device.Name)
+
+	// Handle chosen option
+	switch chosen {
+	case "":
+		fallthrough
+	case DeviceActionConnect:
+		device.Connect()
+		ui.showDeviceMenu(device)
+	case DeviceActionDisconnect:
+		device.Disconnect()
+		ui.showDeviceMenu(device)
+	case DeviceActionPair:
+		device.Pair()
+		ui.showDeviceMenu(device)
+	case DeviceActionUnpair:
+		device.Unpair()
+		ui.showDeviceMenu(device)
+	case DeviceActionTrust:
+		device.SetTrust(true)
+		ui.showDeviceMenu(device)
+	case DeviceActionUntrust:
+		device.SetTrust(false)
+		ui.showDeviceMenu(device)
+	case ActionGoBack:
+		ui.ShowMainMenu()
+	}
+}
+
+// showDiscoveredDeviceMenu displays the menu for a discovered device
+func (ui UI) showDiscoveredDeviceMenu(device bluetooth.Device) {
+	var options []string
+
+	// Build options for discovered devices
+	options = append(options, "Pair", "Pair and Trust", ActionGoBack, "Exit")
 
 	// Open wofi menu
 	chosen := promptMenuOptions(options, device.Name)
@@ -171,26 +263,15 @@ func (ui UI) showDeviceMenu(device bluetooth.Device) {
 	// Handle chosen option
 	switch chosen {
 	case "":
-		fallthrough
-	case "Connected: yes":
-		device.Disconnect()
-		ui.showDeviceMenu(device)
-	case "Connected: no":
-		device.Connect()
-		ui.showDeviceMenu(device)
-	case "Paired: yes":
-		device.Unpair()
-		ui.showDeviceMenu(device)
-	case "Paired: no":
+		ui.ShowMainMenu()
+	case "Pair":
 		device.Pair()
-		ui.showDeviceMenu(device)
-	case "Trusted: yes":
-		device.SetTrust(false)
-		ui.showDeviceMenu(device)
-	case "Trusted: no":
+		ui.ShowMainMenu()
+	case "Pair and Trust":
+		device.Pair()
 		device.SetTrust(true)
-		ui.showDeviceMenu(device)
-	case GoBack:
+		ui.ShowMainMenu()
+	case ActionGoBack:
 		ui.ShowMainMenu()
 	}
 }

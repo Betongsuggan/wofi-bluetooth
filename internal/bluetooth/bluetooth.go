@@ -48,7 +48,6 @@ func (c *Controller) SetPower(on bool) error {
 	state := "off"
 	if on {
 		state = "on"
-		// Check if bluetooth is blocked by rfkill
 		output, _ := execCommand("rfkill", "list", "bluetooth")
 		if strings.Contains(output, "blocked: yes") {
 			execCommand("rfkill", "unblock", "bluetooth")
@@ -61,23 +60,37 @@ func (c *Controller) SetPower(on bool) error {
 
 // IsScanning checks if controller is scanning for new devices
 func (c *Controller) IsScanning() bool {
+	// Check if bluetoothctl is in scanning mode
 	output, err := execCommand("bluetoothctl", "show")
 	if err != nil {
 		fmt.Println("Error checking scan state:", err)
 		return false
 	}
-	return strings.Contains(output, "Discovering: yes")
+
+	// Also check if our scanning process is running
+	scanningProcess, _ := execCommand("pgrep", "-f", "echo -e 'power on\\nscan on\\n' | bluetoothctl")
+
+	return strings.Contains(output, "Discovering: yes") || scanningProcess != ""
 }
 
 // SetScanning sets the scanning state
 func (c *Controller) SetScanning(on bool) error {
 	if on {
-		// Start scanning in background
-		cmd := exec.Command("bluetoothctl", "scan", "on")
-		err := cmd.Start() // Don't wait for it to complete
+		// Execute the specific scanning sequence
+		cmd := exec.Command("bash", "-c", `
+			echo -e 'power on\nscan on\n' | bluetoothctl
+			sleep 5
+			echo -e 'scan off\ndevices\nquit' | bluetoothctl
+		`)
+
+		// Run in background
+		err := cmd.Start()
 		if err != nil {
 			return err
 		}
+
+		// No need to wait for completion as we want to return to the UI immediately
+		// The scan will complete on its own after 5 seconds
 	} else {
 		// Kill any running scan processes
 		exec.Command("pkill", "-f", "bluetoothctl scan on").Run()
@@ -244,6 +257,57 @@ func (c *Controller) GetConnectedDevices() ([]Device, error) {
 	}
 
 	return devices, nil
+}
+
+// GetDiscoveredDevices returns a list of discovered but not paired devices
+func (c *Controller) GetDiscoveredDevices() ([]Device, error) {
+	// First, get all devices from bluetoothctl
+	allDevicesOutput, err := execCommand("bluetoothctl", "devices")
+	if err != nil {
+		return nil, err
+	}
+
+	// Then get paired devices
+	pairedDevicesOutput, err := execCommand("bluetoothctl", "paired-devices")
+	if err != nil {
+		return nil, err
+	}
+
+	// Create a map of paired device MACs for quick lookup
+	pairedMACs := make(map[string]bool)
+	scanner := bufio.NewScanner(strings.NewReader(pairedDevicesOutput))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Device ") {
+			parts := strings.SplitN(line, " ", 3)
+			if len(parts) >= 2 {
+				pairedMACs[parts[1]] = true
+			}
+		}
+	}
+
+	// Filter for discovered but not paired devices
+	var discoveredDevices []Device
+	scanner = bufio.NewScanner(strings.NewReader(allDevicesOutput))
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "Device ") {
+			parts := strings.SplitN(line, " ", 3)
+			if len(parts) >= 3 {
+				mac := parts[1]
+				if !pairedMACs[mac] {
+					discoveredDevices = append(discoveredDevices, Device{
+						MAC:    mac,
+						Name:   parts[2],
+						Line:   line,
+						Status: DeviceStatusDiscovered,
+					})
+				}
+			}
+		}
+	}
+
+	return discoveredDevices, nil
 }
 
 func execCommand(name string, args ...string) (string, error) {
