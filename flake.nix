@@ -15,7 +15,7 @@
         packages.default = pkgs.buildGoModule {
           pname = "wofi-bluetooth";
           version = "0.1.0";
-          src = ./.;
+          src = ./cmd/wofi-bluetooth;
 
           vendorHash = null; # Will be set to the correct hash on first build
 
@@ -40,7 +40,7 @@
             description = "A Bluetooth management tool for Linux using wofi for the user interface";
             homepage = "https://github.com/birgerrydback/wofi-bluetooth";
             license = licenses.mit;
-            maintainers = with maintainers; [ ];
+            #maintainers = with maintainers; [ ];
             platforms = platforms.linux;
           };
         };
