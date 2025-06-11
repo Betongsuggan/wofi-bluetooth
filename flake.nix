@@ -15,7 +15,7 @@
         packages.default = pkgs.buildGoModule {
           pname = "wofi-bluetooth";
           version = "0.1.0";
-          src = ./cmd/wofi-bluetooth;
+          src = ./.;
 
           vendorHash = null; # Will be set to the correct hash on first build
 

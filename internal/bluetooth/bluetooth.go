@@ -9,21 +9,28 @@ import (
 	"strings"
 )
 
-// Controller represents a Bluetooth controller
-type Controller struct{}
+const (
+	DeviceStatusConnected DeviceStatus = iota
+	DeviceStatusPaired
+	DeviceStatusDiscovered
+)
 
-// NewController creates a new Bluetooth controller instance
+type (
+	Controller struct{}
+
+	// Device represents a Bluetooth device
+	Device struct {
+		MAC    string
+		Name   string
+		Line   string // Original line from bluetoothctl
+		Status DeviceStatus
+	}
+
+	DeviceStatus int
+)
+
 func NewController() *Controller {
 	return &Controller{}
-}
-
-// Execute a command and return its output as a string
-func execCommand(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	err := cmd.Run()
-	return out.String(), err
 }
 
 // IsPowered checks if bluetooth controller is powered on
@@ -122,13 +129,6 @@ func (c *Controller) SetDiscoverable(on bool) error {
 	return err
 }
 
-// Device represents a Bluetooth device
-type Device struct {
-	MAC  string
-	Name string
-	Line string // Original line from bluetoothctl
-}
-
 // IsConnected checks if a device is connected
 func (d *Device) IsConnected() bool {
 	output, err := execCommand("bluetoothctl", "info", d.MAC)
@@ -199,7 +199,7 @@ func (c *Controller) GetDevices() ([]Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var devices []Device
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
@@ -215,7 +215,7 @@ func (c *Controller) GetDevices() ([]Device, error) {
 			}
 		}
 	}
-	
+
 	return devices, nil
 }
 
@@ -225,7 +225,7 @@ func (c *Controller) GetConnectedDevices() ([]Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var devices []Device
 	scanner := bufio.NewScanner(strings.NewReader(output))
 	for scanner.Scan() {
@@ -234,13 +234,22 @@ func (c *Controller) GetConnectedDevices() ([]Device, error) {
 			parts := strings.SplitN(line, " ", 3)
 			if len(parts) >= 3 {
 				devices = append(devices, Device{
-					MAC:  parts[1],
-					Name: parts[2],
-					Line: line,
+					MAC:    parts[1],
+					Name:   parts[2],
+					Line:   line,
+					Status: DeviceStatusConnected,
 				})
 			}
 		}
 	}
-	
+
 	return devices, nil
+}
+
+func execCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	err := cmd.Run()
+	return out.String(), err
 }
