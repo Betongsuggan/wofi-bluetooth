@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"time"
 )
 
 // showMainMenu displays the main Bluetooth menu
@@ -19,12 +18,12 @@ func (ui UI) ShowMainMenu() {
 		ui.bluetooth.SetPower(true)
 		ui.ShowMainMenu()
 	case ActionScan:
-		ui.bluetooth.SetScanning(10)
-
-		// Wait a moment to let the scan start
-		time.Sleep(500 * time.Millisecond)
-
-		ui.ShowMainMenu()
+		err := ui.bluetooth.SetScanning(true)
+		if err != nil {
+			fmt.Printf("failed to start scanning: %s", err)
+			return
+		}
+		ui.ShowScanMenu()
 	case ActionDisableDiscoverable:
 		ui.bluetooth.SetDiscoverable(false)
 		ui.ShowMainMenu()
@@ -39,7 +38,7 @@ func (ui UI) ShowMainMenu() {
 		ui.ShowMainMenu()
 	default:
 		// Look if we matched any devices
-		allDevices, _ := ui.bluetooth.GetDevices()
+		allDevices, _ := ui.bluetooth.GetKnownDevices()
 		for _, device := range allDevices {
 			if device.Name == action {
 				ui.ShowDeviceMenu(device)
@@ -54,7 +53,7 @@ func (ui UI) getMainMenuOptions() []string {
 		return []string{ActionEnableBluetooth}
 	}
 
-	devices, err := ui.bluetooth.GetDevices()
+	devices, err := ui.bluetooth.GetKnownDevices()
 	if err != nil {
 		fmt.Println("Error getting all devices:", err)
 	}

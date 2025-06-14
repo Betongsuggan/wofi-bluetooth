@@ -21,7 +21,8 @@ const (
 	ActionEnablePairable      = "󰌺  Enable pairable"
 	ActionDisablePairable     = "  Disable pairable"
 	ActionScan                = "󱉶  Scan"
-	ActionGoBack              = "Back"
+	ActionRefresh             = "  Refresh"
+	ActionGoBack              = "󱞧  Back"
 
 	DeviceActionPair       = "󰌺  Pair"
 	DeviceActionUnpair     = "  Unpair"
@@ -48,6 +49,9 @@ func promptMenuOptions(options []string, prompt string) string {
 	optionsStr := strings.Join(options, "\n")
 
 	lines := len(options)
+	if lines > 10 {
+		lines = 10
+	}
 
 	cmdStr := fmt.Sprintf("echo -e '%s' | %s \"%s\" -L %d",
 		strings.ReplaceAll(optionsStr, "'", "'\\''"), // Escape single quotes for shell

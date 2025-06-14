@@ -8,6 +8,7 @@ import (
 const (
 	DeviceStatusConnected DeviceStatus = iota
 	DeviceStatusPaired
+	DeviceStatusTrusted
 	DeviceStatusDiscovered
 
 	DeviceTypePhone DeviceType = iota
@@ -15,6 +16,7 @@ const (
 	DeviceTypeLaptop
 	DeviceTypeTV
 	DeviceTypeController
+	DeviceTypeGeneric
 
 	DeviceGlyphConnected  = "󰂱"
 	DeviceGlyphLaptop     = ""
@@ -31,6 +33,7 @@ var deviceGlyphs = map[DeviceType]string{
 	DeviceTypeController: DeviceGlyphController,
 	DeviceTypeHeadphones: DeviceGlyphHeadphones,
 	DeviceTypeTV:         DeviceGlyphTV,
+	DeviceTypeGeneric:    DeviceGlyphGeneric,
 }
 
 type (
